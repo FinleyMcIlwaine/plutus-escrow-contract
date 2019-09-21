@@ -21,11 +21,15 @@ let
   hies = all-hies.selection { selector = p: { inherit (p) ghc865; }; };
 in
 with pkgs; mkShell {
-  buildInputs = [
-    ghc 
+  buildInputs =
+    let runtimeGhc = pkgs.haskellPackages.ghcWithPackages (ps: [
+      haskellPackages.zlib
+    ]); 
+    in [
+    runtimeGhc
     openssl
     hies
     cabal-install
     vscode
-  ];
+    ];
 }

@@ -1,59 +1,63 @@
 packages:
     ./
+source-repository-package
+    type: git
+    location: https://bitbucket.org/ssaasen/haskell-jwt
+    tag: 3d92b577b03aa5ad8730c5e05f92eef07a43642a 
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: language-plutus-core
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-wallet-api
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-emulator
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-core-interpreter
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-ir
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: playground-common
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: iots-export
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-contract
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-tx
-    tag: dbc2646112a87c710a8dd6f80b63458ca37a06c4
+    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
