@@ -12,4 +12,10 @@
 {-# LANGUAGE MonoLocalBinds #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 module Escrow (
-    
+    -- * Endpoints
+    initializeContract,
+
+    -- * Agent wallets
+    buyerAddress,
+    sellerAddress,
+    escrowAddress,
