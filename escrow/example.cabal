@@ -20,7 +20,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Escrow
   other-modules:
   hs-source-dirs:
       src
