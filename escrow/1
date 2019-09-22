@@ -139,7 +139,8 @@ lockDisputeSignPay :: forall m . (EM.MonadEmulator m) => Integer -> Integer -> I
 lockDisputeSignPay w i j k = EM.processEmulated $ do
     initialise''
     st1 <- lock'' (Ada.adaValueOf 10)
-    foldM_ (\st _ -> (dispute'' i >=> addSignature'' j >=> makePayment'') st) st1 [1..k]
+    st2 <- foldM (\st _ -> disputePay i st) st1 [1..k]
+    foldM_ (\st _ -> signPay j st) st2 [1..k]
     processAndNotify
     EM.assertOwnFundsEq (EM.Wallet w) (Ada.adaValueOf 10)
 
