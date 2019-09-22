@@ -31,12 +31,12 @@ tests = testGroup "escrow state machine tests" [
     HUnit.testCaseSteps "initialise - SUCCESS" (runTrace (initialiseTest ()) isRight),
     HUnit.testCaseSteps "initialise, lock - SUCCESS" (runTrace (initialiseLockTest ()) isRight),
     HUnit.testCaseSteps "lock, sign - SUCCESS" (runTrace (lockSignPay 3 1) isRight),
-    HUnit.testCaseSteps "lock, sign 1x, pay - FAIL" (runTrace (lockSignPay 1 1) isLeft),
-    HUnit.testCaseSteps "lock, sign 2x, pay - Seller receives funds SUCCESS" (runTrace (lockSignPay 2 1) isRight),
-    HUnit.testCaseSteps "lock, sign 3x, pay - Seller receives funds SUCCESS" (runTrace (lockSignPay 3 1) isRight),
-    HUnit.testCaseSteps "lock, dispute 1x, pay - FAIL" (runTrace (lockDisputePay 1 1) isLeft),
-    HUnit.testCaseSteps "lock, dispute 2x pay - Buyer receives refund SUCCESS" (runTrace (lockDisputePay 2 1) isRight),
-    HUnit.testCaseSteps "lock, dispute 3x pay - Buyer receives refund SUCCESS" (runTrace (lockDisputePay 2 1) isRight)
+    HUnit.testCaseSteps "lock, sign 1x, pay - Funds stay locked" (runTrace (lockSignPay 1 1) isLeft),
+    HUnit.testCaseSteps "lock, sign 2x, pay - Seller receives funds" (runTrace (lockSignPay 2 1) isRight),
+    HUnit.testCaseSteps "lock, sign 3x, pay - Seller receives funds" (runTrace (lockSignPay 3 1) isRight),
+    HUnit.testCaseSteps "lock, dispute 1x, pay - Funds stay" (runTrace (lockDisputePay 1 1) isLeft),
+    HUnit.testCaseSteps "lock, dispute 2x pay - Buyer receives refund" (runTrace (lockDisputePay 2 1) isRight),
+    HUnit.testCaseSteps "lock, dispute 3x pay - Buyer receives refund" (runTrace (lockDisputePay 2 1) isRight)
     ]
 
 runTrace :: EM.EmulatorAction a -> (Either EM.AssertionError a -> Bool) -> (String -> IO ()) -> IO ()
