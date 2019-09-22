@@ -182,8 +182,8 @@ machineInstance =
     haltRedeemerCode
 
 -- | Start watching the contract address
-initialise :: WalletAPI m => m ()
-initialise = WAPI.startWatching $ Typed.scriptAddress scriptInstance
+initialise :: WalletAPI m => () -> m ()
+initialise () = WAPI.startWatching $ Typed.scriptAddress scriptInstance
 
 -- | Lock some funds in a multisig contract.
 lock

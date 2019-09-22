@@ -66,7 +66,7 @@ payment =
         }
 
 initialise' :: WalletAPI m => m ()
-initialise' = ESM.initialise
+initialise' = ESM.initialise ()
 
 -- State machine transitions partially applied to the 'payment' multisig contract
 -- 
@@ -88,9 +88,6 @@ initialise'' =
 lock'' :: (WalletAPI m, WalletDiagnostics m) => Value -> EM.Trace m State
 -- wallet 1 locks the funds
 lock'' value = processAndNotify >> fst <$> EM.walletAction w1 (lock' value (EM.walletPubKey w2) (EM.walletPubKey w3) 10)
-
--- proposePayment'' :: (WalletAPI m, WalletDiagnostics m) => State -> EM.Trace m State
--- proposePayment'' st = processAndNotify >> fst <$> EM.walletAction w2 (proposePayment' st payment)
 
 addSignature'' :: (WalletAPI m, WalletDiagnostics m) => Integer -> State -> EM.Trace m State
 addSignature'' i inSt = foldM (\st w -> (processAndNotify >> fst <$> EM.walletAction w (addSignature' st))) inSt (take (fromIntegral i) [w1, w2, w3])
@@ -118,4 +115,4 @@ lockSignPay i j = EM.processEmulated $ do
 initialiseTest () = EM.processEmulated $ do
     initialise''
     processAndNotify
-    EM.assertOwnFundsEq w2 (Ada.adaValueOf 10)
+    EM.assertOwnFundsEq w1 (Ada.adaValueOf 10)
