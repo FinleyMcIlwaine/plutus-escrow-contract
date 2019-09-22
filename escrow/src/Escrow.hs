@@ -63,14 +63,14 @@ PlutusTx.makeLift ''Payment
 
 -- | State of the escrow contract
 data State =
-    CollectingSignatures Value Payment [PubKey] [PubKey]
+    CollectingSignatures Payment [PubKey] [PubKey]
     | Paid
     deriving (Show)
 
 instance Eq State where
     {-# INLINABLE (==) #-}
-    (CollectingSignatures vl pmt pks dpks) == (CollectingSignatures vl' pmt' pks' dpks') =
-        vl == vl' && pmt == pmt' && pks == pks' && dpks == dpks'
+    (CollectingSignatures pmt pks dpks) == (CollectingSignatures pmt' pks' dpks') =
+        pmt == pmt' && pks == pks' && dpks == dpks'
     Paid == Paid = True
     _ == _ = False
 
@@ -85,7 +85,7 @@ data Input =
 PlutusTx.makeLift ''Input
 
 {-# INLINABLE isSignatory #-}
--- | Check if a public key is one of the signatories of the multisig contract.
+-- | Check if a public key is one of the signatories of the escrow contract.
 isSignatory :: PubKey -> Payment -> Bool
 isSignatory pk (Payment _ spk rpk apk  _) = any (\pk' -> pk == pk') [spk,rpk,apk]
 
@@ -101,72 +101,64 @@ proposalExpired PendingTx{pendingTxValidRange} Payment{paymentDeadline} =
     paymentDeadline `Interval.before` pendingTxValidRange
 
 {-# INLINABLE proposalAccepted #-}
--- | Check whether enough signatories (represented as a list of public keys)
---   have signed a proposed payment.
+-- | Check whether enough signatories have approved or disputed the contract
 proposalAccepted :: Payment -> [PubKey] -> Bool
 proposalAccepted (Payment _ spk rpk apk _) pks =
     let numSigned = length (filter (\pk -> containsPk pk pks) [spk,rpk,apk])
-    -- * Hehehehehe
     in numSigned >= 2
 
 {-# INLINABLE valuePreserved #-}
--- | @valuePreserved v p@ is true if the pending transaction @p@ pays the amount
---   @v@ to this script's address. It does not assert the number of such outputs:
---   this is handled in the generic state machine validator.
+-- Value stays locked
 valuePreserved :: Value -> PendingTx -> Bool
 valuePreserved vl ptx = vl == Validation.valueLockedBy ptx (Validation.ownHash ptx)
 
 {-# INLINABLE valuePaid #-}
--- | @valuePaid pm ptx@ is true if the pending transaction @ptx@ pays
---   the amount specified in @pm@ to the public key address specified in @pm@
+-- | True if the pending transaction pays
+--   the amount specified to the buyer or seller in the payment specified 
 valuePaid :: Payment -> PendingTx -> Bool
 valuePaid (Payment vl spk rpk apk _) ptx = (vl == (Validation.valuePaidTo ptx rpk)) || (vl == (Validation.valuePaidTo ptx spk))
 
 {-# INLINABLE step #-}
--- | @step params state input@ computes the next state given current state
---   @state@ and the input.
+-- | Computes the next state given current state
 --   'step' does not perform any checks of the preconditions. This is done in
 --   'check' below.
 step :: State -> Input -> Maybe State
 step s i = case (s, i) of
-    (CollectingSignatures vl pmt pks dpks, AddSignature pk) ->
-        Just $ CollectingSignatures vl pmt (pk:pks) (filter (\dpk -> dpk /= pk) dpks)
-    (CollectingSignatures vl pmt pks dpks, Dispute dpk) ->
-        Just $ CollectingSignatures vl pmt (filter (\pk' -> pk' /= dpk) pks) (dpk:dpks)
-    (CollectingSignatures vl _ _ _, Cancel) ->
+    (CollectingSignatures pmt pks dpks, AddSignature pk) ->
+        Just $ CollectingSignatures pmt (pk:pks) (filter (\dpk -> dpk /= pk) dpks)
+    (CollectingSignatures pmt pks dpks, Dispute dpk) ->
+        Just $ CollectingSignatures pmt (filter (\pk' -> pk' /= dpk) pks) (dpk:dpks)
+    (CollectingSignatures _ _ _, Cancel) ->
         Just $ Paid
-    (CollectingSignatures vl (Payment vp _ _ _ _) _ _, Pay) ->
+    (CollectingSignatures (Payment vp _ _ _ _) _ _, Pay) ->
         Just $ Paid
     _ -> Nothing
 
 {-# INLINABLE check #-}
--- | @check params ptx state input@ checks whether the pending
---   transaction @ptx@ pays the expected amounts to script and public key
---   addresses.
+-- | Checks whether the pending transaction pays the expected amounts to script and public key addresses.
 check :: State -> Input -> PendingTx -> Bool
 check s i ptx = case (s, i) of
-    (CollectingSignatures vl pmt pks dpks, AddSignature pk) ->
+    (CollectingSignatures pmt@(Payment vl _ _ _ _) pks dpks, AddSignature pk) ->
         Validation.txSignedBy ptx pk &&
             isSignatory pk pmt &&
             not (containsPk pk pks) &&
             valuePreserved vl ptx
-    (CollectingSignatures vl pmt pks dpks, Dispute dpk) ->
+    (CollectingSignatures pmt@(Payment vl _ _ _ _) pks dpks, Dispute dpk) ->
         Validation.txSignedBy ptx dpk &&
         isSignatory dpk pmt &&
         not (containsPk dpk dpks) &&
         valuePreserved vl ptx
-    (CollectingSignatures vl pmt _ _, Cancel) ->
+    (CollectingSignatures pmt@(Payment vl _ _ _ _) _ _, Cancel) ->
         proposalExpired ptx pmt && valuePreserved vl ptx
-    (CollectingSignatures vl pmt@(Payment vp _ _ _ _) pks dpks, Pay) ->
-        let vl' = vl - vp in
+    (CollectingSignatures pmt@(Payment vl _ _ _ _) pks dpks, Pay) ->
         not (proposalExpired ptx pmt) &&
             ((proposalAccepted pmt pks) || (proposalAccepted pmt dpks))  &&
-            valuePreserved vl' ptx &&
+            valuePreserved (vl - vl) ptx &&
             valuePaid pmt ptx
     _ -> False
 
 {-# INLINABLE final #-}
--- | The machine is in a final state if we are holding no money.
+-- | The machine is in a final state if we are paid.
 final :: State -> Bool
 final Paid = True
 final _ = False
@@ -194,7 +186,7 @@ machineInstance =
 initialise :: WalletAPI m => () -> m ()
 initialise () = WAPI.startWatching $ Typed.scriptAddress scriptInstance
 
--- | Lock some funds in a multisig contract.
+-- | Lock some funds in an contract.
 lock
     :: (WalletAPI m, WalletDiagnostics m)
     =>
@@ -210,7 +202,7 @@ lock
     -- ^ The initial state of the contract
 lock vl rpk apk dl = do
     spk <- WAPI.ownPubKey
-    (tx, state) <- SM.mkInitialise machineInstance (CollectingSignatures vl (Payment vl spk rpk apk dl) [] []) vl
+    (tx, state) <- SM.mkInitialise machineInstance (CollectingSignatures (Payment vl spk rpk apk dl) [] []) vl
 
     void $ WAPITyped.signTxAndSubmit tx
 
@@ -237,7 +229,7 @@ dispute
     -> m State
 dispute st = WAPI.ownPubKey >>= runStep st . Dispute
 
--- | Make a payment after enough signatures have been collected.
+-- | Make a payment after enough signatures or disputes have been collected.
 makePayment
     :: (WalletAPI m, WalletDiagnostics m)
     => State
@@ -245,10 +237,9 @@ makePayment
 makePayment currentState = do
     -- we can't use 'runStep' because the outputs of the transaction are
     -- different from the other transitions: We need two outputs, a public
-    -- key output with the payment, and the script output with the remaining
-    -- funds.
+    -- key output with the payment, and the script output
     (value, recipient) <- case currentState of
-        CollectingSignatures vl' (Payment vl spk rpk _ _) pks dpks -> pure (vl, (if (length pks) > (length dpks) then rpk else spk))
+        CollectingSignatures (Payment vl spk rpk _ _) pks dpks -> pure (vl, (if (length pks) > (length dpks) then rpk else spk))
         _ -> WAPI.throwOtherError "Cannot make payment because no payment has been proposed. Run the 'lock' action first."
         -- Need to match to get the existential type out
     let addOutAndPay (Typed.TypedTxSomeIns tx) = do
@@ -266,11 +257,10 @@ stepRedeemerCode = $$(PlutusTx.compile [|| SM.mkStepRedeemer @State @Input ||])
 haltRedeemerCode :: PlutusTx.CompiledCode (Input -> Typed.RedeemerFunctionType '[] EscrowSym)
 haltRedeemerCode = $$(PlutusTx.compile [|| SM.mkHaltRedeemer @State @Input ||])
 
--- | Advance a running multisig contract. This applies the transition function
+-- | Advance a running escrow contract. This applies the transition function
 --   'SM.transition' to the current contract state and uses the result to unlock
 --   the funds currently in the contract, and lock them again with a data script
 --   containing the new state.
---
 runStep
     :: (WalletAPI m, WalletDiagnostics m)
     => State
@@ -287,9 +277,3 @@ runStep currentState input = do
         (Typed.TypedTxSomeIns tx) -> void $ WAPITyped.signTxAndSubmit tx
 
     pure newState
-
---  Note [Current state of the contract]
---  The 'mkStep' function takes the current state of the contract and returns the
---  new state. Both values are placed on the chain, so technically we don't have to
---  pass them around like this, but we currently can't decode 'State' values from
---  PLC back to Haskell.
