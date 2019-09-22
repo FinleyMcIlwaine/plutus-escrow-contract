@@ -62,14 +62,14 @@ PlutusTx.makeLift ''Payment
 
 -- | State of the escrow contract
 data State =
-    CollectingSignatures Value Payment [PubKey]
+    CollectingSignatures Value Payment [PubKey] [PubKey]
     | Paid
     deriving (Show)
 
 instance Eq State where
     {-# INLINABLE (==) #-}
-    (CollectingSignatures vl pmt pks) == (CollectingSignatures vl' pmt' pks') =
-        vl == vl' && pmt == pmt' && pks == pks'
+    (CollectingSignatures vl pmt pks dpks) == (CollectingSignatures vl' pmt' pks' dpks') =
+        vl == vl' && pmt == pmt' && pks == pks' && dpks == dpks'
     Paid == Paid = True
     _ == _ = False
 
@@ -77,6 +77,7 @@ PlutusTx.makeLift ''State
 
 data Input = 
     AddSignature PubKey
+    | Dispute PubKey
     | Cancel
     | Pay
 
@@ -127,11 +128,13 @@ valuePaid (Payment vl _ rpk apk _) ptx = vl == (Validation.valuePaidTo ptx rpk)
 --   'check' below.
 step :: State -> Input -> Maybe State
 step s i = case (s, i) of
-    (CollectingSignatures vl pmt pks, AddSignature pk) ->
-        Just $ CollectingSignatures vl pmt (pk:pks)
-    (CollectingSignatures vl _ _, Cancel) ->
+    (CollectingSignatures vl pmt pks dpks, AddSignature pk) ->
+        Just $ CollectingSignatures vl pmt (pk:pks) (filter (\dpk -> dpk /= pk) dpks)
+    (CollectingSignatures vl pmt pks dpks, Dispute dpk) ->
+        Just $ CollectingSignatures vl pmt (filter (\pk -> pk /= dpk) pks) (dpk:dpks)
+    (CollectingSignatures vl _ _ _, Cancel) ->
         Just $ Paid
-    (CollectingSignatures vl (Payment vp _ _ _ _) _, Pay) ->
+    (CollectingSignatures vl (Payment vp _ _ _ _) _ _, Pay) ->
         Just $ Paid
     _ -> Nothing
 
@@ -141,17 +144,22 @@ step s i = case (s, i) of
 --   addresses.
 check :: State -> Input -> PendingTx -> Bool
 check s i ptx = case (s, i) of
-    (CollectingSignatures vl pmt pks, AddSignature pk) ->
+    (CollectingSignatures vl pmt pks dpks, AddSignature pk) ->
         Validation.txSignedBy ptx pk &&
             isSignatory pk pmt &&
             not (containsPk pk pks) &&
             valuePreserved vl ptx
-    (CollectingSignatures vl pmt _, Cancel) ->
+    (CollectingSignatures vl pmt pks dpks, Dispute dpk) ->
+        Validation.txSignedBy ptx dpk &&
+        isSignatory dpk pmt &&
+        not (containsPk dpk dpks) &&
+        valuePreserved vl ptx
+    (CollectingSignatures vl pmt _ _, Cancel) ->
         proposalExpired ptx pmt && valuePreserved vl ptx
-    (CollectingSignatures vl pmt@(Payment vp _ _ _ _) pks, Pay) ->
+    (CollectingSignatures vl pmt@(Payment vp _ _ _ _) pks dpks, Pay) ->
         let vl' = vl - vp in
         not (proposalExpired ptx pmt) &&
-            proposalAccepted pmt pks &&
+            ((proposalAccepted pmt pks) || (proposalAccepted pmt dpks))  &&
             valuePreserved vl' ptx &&
             valuePaid pmt ptx
     _ -> False
@@ -201,7 +209,7 @@ lock
     -- ^ The initial state of the contract
 lock vl rpk apk dl = do
     spk <- WAPI.ownPubKey
-    (tx, state) <- SM.mkInitialise machineInstance (CollectingSignatures vl (Payment vl spk rpk apk dl) []) vl
+    (tx, state) <- SM.mkInitialise machineInstance (CollectingSignatures vl (Payment vl spk rpk apk dl) [] []) vl
 
     void $ WAPITyped.signTxAndSubmit tx
 
@@ -221,6 +229,13 @@ addSignature
     -> m State
 addSignature st = WAPI.ownPubKey >>= runStep st . AddSignature
 
+-- | Dispute the contract fulfillment
+dispute
+    :: (WalletAPI m, WalletDiagnostics m)
+    => State
+    -> m State
+dispute st = WAPI.ownPubKey >>= runStep st . Dispute
+
 -- | Make a payment after enough signatures have been collected.
 makePayment
     :: (WalletAPI m, WalletDiagnostics m)
@@ -232,7 +247,7 @@ makePayment currentState = do
     -- key output with the payment, and the script output with the remaining
     -- funds.
     (value, recipient) <- case currentState of
-        CollectingSignatures vl' (Payment vl _ rpk _ _) _ -> pure (vl, rpk)
+        CollectingSignatures vl' (Payment vl spk rpk _ _) pks dpks -> pure (vl, (if (length pks) > (length dpks) then rpk else spk))
         _ -> WAPI.throwOtherError "Cannot make payment because no payment has been proposed. Run the 'lock' action first."
         -- Need to match to get the existential type out
     let addOutAndPay (Typed.TypedTxSomeIns tx) = do
