@@ -20,6 +20,7 @@ module Escrow(
     , lock
     , cancelPayment
     , addSignature
+    , dispute
     , makePayment
     ) where
 
@@ -119,7 +120,7 @@ valuePreserved vl ptx = vl == Validation.valueLockedBy ptx (Validation.ownHash p
 -- | @valuePaid pm ptx@ is true if the pending transaction @ptx@ pays
 --   the amount specified in @pm@ to the public key address specified in @pm@
 valuePaid :: Payment -> PendingTx -> Bool
-valuePaid (Payment vl _ rpk apk _) ptx = vl == (Validation.valuePaidTo ptx rpk)
+valuePaid (Payment vl spk rpk apk _) ptx = (vl == (Validation.valuePaidTo ptx rpk)) || (vl == (Validation.valuePaidTo ptx spk))
 
 {-# INLINABLE step #-}
 -- | @step params state input@ computes the next state given current state
@@ -131,7 +132,7 @@ step s i = case (s, i) of
     (CollectingSignatures vl pmt pks dpks, AddSignature pk) ->
         Just $ CollectingSignatures vl pmt (pk:pks) (filter (\dpk -> dpk /= pk) dpks)
     (CollectingSignatures vl pmt pks dpks, Dispute dpk) ->
-        Just $ CollectingSignatures vl pmt (filter (\pk -> pk /= dpk) pks) (dpk:dpks)
+        Just $ CollectingSignatures vl pmt (filter (\pk' -> pk' /= dpk) pks) (dpk:dpks)
     (CollectingSignatures vl _ _ _, Cancel) ->
         Just $ Paid
     (CollectingSignatures vl (Payment vp _ _ _ _) _ _, Pay) ->

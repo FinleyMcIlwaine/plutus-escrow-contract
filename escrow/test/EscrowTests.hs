@@ -32,8 +32,11 @@ tests = testGroup "escrow state machine tests" [
     HUnit.testCaseSteps "initialise, lock - SUCCESS" (runTrace (initialiseLockTest ()) isRight),
     HUnit.testCaseSteps "lock, sign - SUCCESS" (runTrace (lockSignPay 3 1) isRight),
     HUnit.testCaseSteps "lock, sign 1x, pay - FAIL" (runTrace (lockSignPay 1 1) isLeft),
-    HUnit.testCaseSteps "lock, sign 2x, pay - SUCCESS" (runTrace (lockSignPay 2 1) isRight),
-    HUnit.testCaseSteps "lock, sign 3x, pay - SUCCESS" (runTrace (lockSignPay 3 1) isRight)
+    HUnit.testCaseSteps "lock, sign 2x, pay - Seller receives funds SUCCESS" (runTrace (lockSignPay 2 1) isRight),
+    HUnit.testCaseSteps "lock, sign 3x, pay - Seller receives funds SUCCESS" (runTrace (lockSignPay 3 1) isRight),
+    HUnit.testCaseSteps "lock, dispute 1x, pay - FAIL" (runTrace (lockDisputePay 1 1) isLeft),
+    HUnit.testCaseSteps "lock, dispute 2x pay - Buyer receives refund SUCCESS" (runTrace (lockDisputePay 2 1) isRight),
+    HUnit.testCaseSteps "lock, dispute 3x pay - Buyer receives refund SUCCESS" (runTrace (lockDisputePay 2 1) isRight)
     ]
 
 runTrace :: EM.EmulatorAction a -> (Either EM.AssertionError a -> Bool) -> (String -> IO ()) -> IO ()
@@ -78,6 +81,9 @@ lock' = ESM.lock
 addSignature' :: (WalletAPI m, WalletDiagnostics m) => State -> m State
 addSignature' = ESM.addSignature
 
+dispute' :: (WalletAPI m, WalletDiagnostics m) => State -> m State
+dispute' = ESM.dispute
+
 makePayment' :: (WalletAPI m, WalletDiagnostics m) => State -> m State
 makePayment' = ESM.makePayment
  
@@ -93,11 +99,17 @@ lock'' value = processAndNotify >> fst <$> EM.walletAction w1 (lock' value (EM.w
 addSignature'' :: (WalletAPI m, WalletDiagnostics m) => Integer -> State -> EM.Trace m State
 addSignature'' i inSt = foldM (\st w -> (processAndNotify >> fst <$> EM.walletAction w (addSignature' st))) inSt (take (fromIntegral i) [w1, w2, w3])
 
+dispute'' :: (WalletAPI m, WalletDiagnostics m) => Integer -> State -> EM.Trace m State
+dispute'' i inSt = foldM (\st w -> (processAndNotify >> fst <$> EM.walletAction w (dispute' st))) inSt (take (fromIntegral i) [w1, w2, w3])
+
 makePayment'' :: (WalletAPI m, WalletDiagnostics m) => State -> EM.Trace m State
 makePayment'' st = processAndNotify >> fst <$> EM.walletAction w3 (makePayment' st)
 
 signPay :: (WalletAPI m, WalletDiagnostics m) => Integer -> State -> EM.Trace m State
 signPay i = addSignature'' i >=> makePayment''
+
+disputePay :: (WalletAPI m, WalletDiagnostics m) => Integer -> State -> EM.Trace m State
+disputePay i = dispute'' i >=> makePayment''
 
 lockSignPay :: forall m . (EM.MonadEmulator m) => Integer -> Integer -> m ()
 lockSignPay i j = EM.processEmulated $ do
@@ -112,6 +124,14 @@ lockSignPay i j = EM.processEmulated $ do
 
     processAndNotify
     EM.assertOwnFundsEq w2 (Ada.adaValueOf 10)
+
+lockDisputePay :: forall m . (EM.MonadEmulator m) => Integer -> Integer -> m ()
+lockDisputePay i j = EM.processEmulated $ do
+    initialise''
+    st1 <- lock'' (Ada.adaValueOf 10)
+    foldM_ (\st _ -> disputePay i st) st1 [1..j]
+    processAndNotify
+    EM.assertOwnFundsEq w1 (Ada.adaValueOf 10)
 
 initialiseTest () = EM.processEmulated $ do
     initialise''
