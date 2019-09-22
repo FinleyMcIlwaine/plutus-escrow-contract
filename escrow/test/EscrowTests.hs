@@ -31,9 +31,9 @@ tests = testGroup "escrow state machine tests" [
     HUnit.testCaseSteps "initialise - SUCCESS" (runTrace (initialiseTest ()) isRight),
     HUnit.testCaseSteps "initialise, lock - SUCCESS" (runTrace (initialiseLockTest ()) isRight),
     HUnit.testCaseSteps "lock, sign - SUCCESS" (runTrace (lockSignPay 3 1) isRight),
-    HUnit.testCaseSteps "lock, propose, sign 2x, pay - FAILURE" (runTrace (lockSignPay 2 1) isLeft),
-    HUnit.testCaseSteps "lock, propose, sign 3x, pay x2 - SUCCESS" (runTrace (lockSignPay 3 2) isRight),
-    HUnit.testCaseSteps "lock, propose, sign 3x, pay x3 - FAILURE" (runTrace (lockSignPay 3 3) isLeft)
+    HUnit.testCaseSteps "lock, sign 1x, pay - FAIL" (runTrace (lockSignPay 1 1) isLeft),
+    HUnit.testCaseSteps "lock, sign 2x, pay - SUCCESS" (runTrace (lockSignPay 2 1) isRight),
+    HUnit.testCaseSteps "lock, sign 3x, pay - SUCCESS" (runTrace (lockSignPay 3 1) isRight)
     ]
 
 runTrace :: EM.EmulatorAction a -> (Either EM.AssertionError a -> Bool) -> (String -> IO ()) -> IO ()
@@ -111,7 +111,7 @@ lockSignPay i j = EM.processEmulated $ do
     foldM_ (\st _ -> signPay i st) st1 [1..j]
 
     processAndNotify
-    EM.assertOwnFundsEq w2 (scale j (Ada.adaValueOf 5))
+    EM.assertOwnFundsEq w2 (Ada.adaValueOf 10)
 
 initialiseTest () = EM.processEmulated $ do
     initialise''
@@ -123,3 +123,11 @@ initialiseLockTest () = EM.processEmulated $ do
     st1 <- lock'' (Ada.adaValueOf 10)
     processAndNotify
     EM.assertOwnFundsEq w1 (Ada.adaValueOf 0)
+
+initialiseLockSignPayTest :: forall m . (EM.MonadEmulator m) => () -> m ()
+initialiseLockSignPayTest () = EM.processEmulated $ do
+    initialise''
+    st1 <- lock'' (Ada.adaValueOf 10)
+    foldM_ (\st _ -> signPay 2 st) st1 [1..3]
+    processAndNotify
+    EM.assertOwnFundsEq w2 (Ada.adaValueOf 10)
