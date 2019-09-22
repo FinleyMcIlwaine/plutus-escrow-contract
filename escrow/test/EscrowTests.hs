@@ -29,6 +29,7 @@ import qualified Escrow as ESM
 tests :: TestTree
 tests = testGroup "escrow state machine tests" [
     HUnit.testCaseSteps "initialise - SUCCESS" (runTrace (initialiseTest ()) isRight),
+    HUnit.testCaseSteps "initialise, lock - SUCCESS" (runTrace (initialiseLockTest ()) isRight),
     HUnit.testCaseSteps "lock, sign - SUCCESS" (runTrace (lockSignPay 3 1) isRight),
     HUnit.testCaseSteps "lock, propose, sign 2x, pay - FAILURE" (runTrace (lockSignPay 2 1) isLeft),
     HUnit.testCaseSteps "lock, propose, sign 3x, pay x2 - SUCCESS" (runTrace (lockSignPay 3 2) isRight),
@@ -116,3 +117,9 @@ initialiseTest () = EM.processEmulated $ do
     initialise''
     processAndNotify
     EM.assertOwnFundsEq w1 (Ada.adaValueOf 10)
+
+initialiseLockTest () = EM.processEmulated $ do
+    initialise''
+    st1 <- lock'' (Ada.adaValueOf 10)
+    processAndNotify
+    EM.assertOwnFundsEq w1 (Ada.adaValueOf 0)
