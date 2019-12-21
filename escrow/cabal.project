@@ -1,68 +1,54 @@
 packages:
     ./
-source-repository-package
-    type: git
-    location: https://bitbucket.org/ssaasen/haskell-jwt
-    tag: 3d92b577b03aa5ad8730c5e05f92eef07a43642a 
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: language-plutus-core
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-wallet-api
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-emulator
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
-
-source-repository-package
-    type: git 
-    location: https://github.com/input-output-hk/plutus 
-    subdir: plutus-core-interpreter
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-ir
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
-
-source-repository-package
-    type: git 
-    location: https://github.com/input-output-hk/plutus 
-    subdir: playground-common
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: iots-export
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-contract
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/plutus 
     subdir: plutus-tx
-    tag: c53bf5d26d3510627272dfd26faa1c8cbb78e3c2
+
+source-repository-package
+    type: git
+    location: https://github.com/input-output-hk/plutus
+    subdir: playground-common
+
+source-repository-package
+    type: git
+    location: https://github.com/input-output-hk/plutus
+    subdir: plutus-playground-lib
 
 source-repository-package
     type: git 
     location: https://github.com/input-output-hk/cardano-crypto
-    tag: f5cecb6e424cc84f85b6a3e1f803517bb7b4cfb1
 
 allow-older: *
 allow-newer: *
