@@ -16,7 +16,6 @@
 -- | A multisig contract written as a state machine.
 --   $multisig
 module Escrow(
-      Params(..)
     , Payment(..)
     , State
     , mkValidator
@@ -58,85 +57,70 @@ import qualified Prelude as Haskell
 --   state is kept on the chain so there is no need for off-chain communication.
 
 -- | A proposal for making a payment under the multisig scheme.
-data Payment = Payment
+data Contract = Contract
     { paymentAmount    :: Value
     -- ^ How much to pay out
-    , paymentRecipient :: PubKey
-    -- ^ Address to pay the value to
-    , paymentDeadline  :: Slot
+    , depositor :: PubKey
+    -- ^ Address the payment comes from
+    , beneficiary :: PubKey
+    -- ^ Address the payment will go to
+    , escrowAgent :: PubKey
+    -- ^ Address of the escrow agent
+    , expirationSlot  :: Slot
     -- ^ Time until the required amount of signatures has to be collected.
     }
     deriving (Show)
 
 instance Eq Payment where
     {-# INLINABLE (==) #-}
-    (Payment vl pk sl) == (Payment vl' pk' sl') = vl == vl' && pk == pk' && sl == sl'
-
-
-data Params = Params
-    { mspSignatories  :: [PubKey]
-    -- ^ Public keys that are allowed to authorise payments
-    , mspRequiredSigs :: Integer
-    -- ^ How many signatures are required for a payment
-    }
+    (Payment vl dep ben agent sl) == (Payment vl' dep' ben' agent' sl') = vl == vl' && dep == dep' && ben == ben' && agent == agent' && sl == sl'
 
 -- | State of the multisig contract.
 data State =
-    Holding Value
-    -- ^ Money is locked, anyone can make a proposal for a payment. If there is
-    -- no value here then this is a final state and the machine will terminate.
-
-    | CollectingSignatures Value Payment [PubKey]
+    CollectingSignatures Contract [PubKey] [PubKey]
     -- ^ A payment has been proposed and is awaiting signatures.
+    | Paid
+    -- ^ Contract has been paid out or refunded
     deriving (Show)
 
 instance Eq State where
     {-# INLINABLE (==) #-}
-    (Holding v) == (Holding v') = v == v'
-    (CollectingSignatures vl pmt pks) == (CollectingSignatures vl' pmt' pks') =
-        vl == vl' && pmt == pmt' && pks == pks'
+    (Paid) == (Paid) = True
+    (CollectingSignatures contract approvers disputers) == (CollectingSignatures contract' approvers' disputers') =
+        contract == contract' && approvers == approvers' && disputers == disputers'
     _ == _ = False
 
 data Input =
-    ProposePayment Payment
-    -- ^ Propose a payment. The payment can be made as soon as enough
-    --   signatures have been collected.
-
-    | AddSignature PubKey
+    Approve PubKey
     -- ^ Add a signature to the sigs. that have been collected for the
     --   current proposal.
 
-    | Cancel
+    | Dispute PubKey
     -- ^ Cancel the current proposal if the deadline has passed
-
-    | Pay
-    -- ^ Make the payment.
     deriving Show
 
-data MultiSigError =
-    MSContractError ContractError
-    | MSStateMachineError (SM.SMContractError State Input)
+data EscrowError =
+    EContractError ContractError
+    | EStateMachineError (SM.SMContractError State Input)
     deriving Show
-makeClassyPrisms ''MultiSigError
+makeClassyPrisms ''EscrowError
 
-instance AsContractError MultiSigError where
-    _ContractError = _MSContractError
+instance AsContractError EscrowError where
+    _ContractError = _EContractError
 
-instance AsSMContractError MultiSigError State Input where
-    _SMContractError = _MSStateMachineError
+instance AsSMContractError EscrowError State Input where
+    _SMContractError = _EStateMachineError
     
-type MultiSigSchema =
+type EscrowSchema =
     BlockchainActions
-        .\/ Endpoint "propose-payment" Payment
-        .\/ Endpoint "add-signature" ()
-        .\/ Endpoint "cancel-payment" ()
-        .\/ Endpoint "pay" ()
-        .\/ Endpoint "lock" Value
+        .\/ Endpoint "create-contract" Contract
+        .\/ Endpoint "sign-approve" ()
+        .\/ Endpoint "sign-dispute" ()
 
 {-# INLINABLE isSignatory #-}
 -- | Check if a public key is one of the signatories of the multisig contract.
-isSignatory :: PubKey -> Params -> Bool
-isSignatory pk (Params sigs _) = any (\pk' -> pk == pk') sigs
+isSignatory :: PubKey -> Contract -> Bool
+isSignatory pk (Contract _ d b e _) = containsPk pk [d, b, e] --any (\pk' -> pk == pk') [d, b, e]
 
 {-# INLINABLE containsPk #-}
 -- | Check whether a list of public keys contains a given key.
@@ -146,22 +130,22 @@ containsPk pk = any (\pk' -> pk' == pk)
 {-# INLINABLE isValidProposal #-}
 -- | Check whether a proposed 'Payment' is valid given the total
 --   amount of funds currently locked in the contract.
-isValidProposal :: Value -> Payment -> Bool
-isValidProposal vl (Payment amt _ _) = amt `Value.leq` vl
+-- we should not need isValidProposal :: Value -> Payment -> Bool
+--isValidProposal vl (Payment amt _ _) = amt `Value.leq` vl
 
 {-# INLINABLE proposalExpired #-}
--- | Check whether a proposed 'Payment' has expired.
-proposalExpired :: PendingTx -> Payment -> Bool
-proposalExpired PendingTx{pendingTxValidRange} Payment{paymentDeadline} =
-    paymentDeadline `Interval.before` pendingTxValidRange
+-- | Check whether a proposed 'Contract' has expired.
+contractExpired :: PendingTx -> Contract -> Bool
+contractExpired PendingTx{pendingTxValidRange} Contract{expirationSlot} =
+    expirationSlot `Interval.before` pendingTxValidRange
 
 {-# INLINABLE proposalAccepted #-}
 -- | Check whether enough signatories (represented as a list of public keys)
 --   have signed a proposed payment.
-proposalAccepted :: Params -> [PubKey] -> Bool
-proposalAccepted (Params signatories numReq) pks =
-    let numSigned = length (filter (\pk -> containsPk pk pks) signatories)
-    in numSigned >= numReq
+contractAccepted :: Contract -> [PubKey] -> Bool
+contractAccepted (Contract _ d b e _) pks =
+    let numSigned = length (filter (\pk -> containsPk pk pks) [d, b, e])
+    in numSigned >= 2
 
 {-# INLINABLE valuePreserved #-}
 -- | @valuePreserved v p@ is true if the pending transaction @p@ pays the amount
@@ -173,8 +157,14 @@ valuePreserved vl ptx = vl == Validation.valueLockedBy ptx (Validation.ownHash p
 {-# INLINABLE valuePaid #-}
 -- | @valuePaid pm ptx@ is true if the pending transaction @ptx@ pays
 --   the amount specified in @pm@ to the public key address specified in @pm@
-valuePaid :: Payment -> PendingTx -> Bool
-valuePaid (Payment vl pk _) ptx = vl == (Validation.valuePaidTo ptx pk)
+valuePaid :: Contract -> PendingTx -> Bool
+valuePaid (Contract vl d b e _) ptx = vl == (Validation.valuePaidTo ptx b)
+
+{-# INLINABLE valuePaid #-}
+-- | @valuePaid pm ptx@ is true if the pending transaction @ptx@ pays
+--   the amount specified in @pm@ to the public key address specified in @pm@
+valueRefunded :: Contract -> PendingTx -> Bool
+valueRefunded (Contract vl d b e _) ptx = vl == (Validation.valuePaidTo ptx d)
 
 {-# INLINABLE step #-}
 -- | @step params state input@ computes the next state given current state
@@ -183,86 +173,90 @@ valuePaid (Payment vl pk _) ptx = vl == (Validation.valuePaidTo ptx pk)
 --   'check' below.
 step :: State -> Input -> Maybe State
 step s i = case (s, i) of
-    (Holding vl, ProposePayment pmt) ->
-        Just $ CollectingSignatures vl pmt []
-    (CollectingSignatures vl pmt pks, AddSignature pk) ->
-        Just $ CollectingSignatures vl pmt (pk:pks)
-    (CollectingSignatures vl _ _, Cancel) ->
-        Just $ Holding vl
-    (CollectingSignatures vl (Payment vp _ _) _, Pay) ->
-        let vl' = vl - vp in
-        Just $ Holding vl'
+    (CollectingSignatures contract approvers disputers, Approve pk) ->
+        Just $ CollectingSignatures contract (pk:approvers) (filter (\disputer -> disputer \= pk) disputers)
+    (CollectingSignatures contract approvers disputers, Dispute pk) ->
+        Just $ CollectingSignatures contract (filter (\approver -> approver \= pk) approvers) (pk:disputers)
+    --(CollectingSignatures vl (Payment vp _ _) _, Pay) ->
+    --    let vl' = vl - vp in
+    --    Just $ Holding vl'
     _ -> Nothing
 
 {-# INLINABLE check #-}
 -- | @check params ptx state input@ checks whether the pending
 --   transaction @ptx@ pays the expected amounts to script and public key
 --   addresses.
-check :: Params -> State -> Input -> PendingTx -> Bool
-check p s i ptx = case (s, i) of
-    (Holding vl, ProposePayment pmt) ->
-        isValidProposal vl pmt && valuePreserved vl ptx
-    (CollectingSignatures vl _ pks, AddSignature pk) ->
+--   p is params and needs to be dealt with
+check :: State -> Input -> PendingTx -> Bool
+check s i ptx = case (s, i) of
+    (CollectingSignatures contract approvers _, Approve pk) ->
         Validation.txSignedBy ptx pk &&
-            isSignatory pk p &&
-            not (containsPk pk pks) &&
-            valuePreserved vl ptx
-    (CollectingSignatures vl pmt _, Cancel) ->
-        proposalExpired ptx pmt && valuePreserved vl ptx
-    (CollectingSignatures vl pmt@(Payment vp _ _) pks, Pay) ->
-        let vl' = vl - vp in
-        not (proposalExpired ptx pmt) &&
-            proposalAccepted p pks &&
-            valuePreserved vl' ptx &&
-            valuePaid pmt ptx
+            isSignatory pk contract &&
+            not (containsPk pk approvers) &&
+            valuePreserved (paymentAmount contract) ptx
+    (CollectingSignatures contract _ disputers, Dispute pk) ->
+        Validation.txSignedBy ptx pk &&
+            isSignatory pk contract &&
+            not (containsPk pk disputers) &&
+            valuePreserved (paymentAmount contract) ptx
+    --(CollectingSignatures vl pmt _, Cancel) ->
+    --    proposalExpired ptx pmt && valuePreserved vl ptx
+   -- (CollectingSignatures vl pmt@(Payment vp _ _) pks, Pay) ->
+   --     let vl' = vl - vp in
+   --     not (proposalExpired ptx pmt) &&
+   --         proposalAccepted p pks &&
+   --         valuePreserved vl' ptx &&
+   --         valuePaid pmt ptx
     _ -> False
 
 {-# INLINABLE final #-}
 -- | The machine is in a final state if we are holding no money.
 final :: State -> Bool
-final (Holding v) = Value.isZero v
+final (Paid) = True
 final _ = False
 
 {-# INLINABLE mkValidator #-}
-mkValidator :: Params -> Scripts.ValidatorType MultiSigSym
-mkValidator p = SM.mkValidator $ StateMachine step (check p) final
+mkValidator :: Scripts.ValidatorType EscrowSym
+mkValidator = SM.mkValidator $ StateMachine step check final
 
-validatorCode :: Params -> PlutusTx.CompiledCode (Scripts.ValidatorType MultiSigSym)
-validatorCode params = $$(PlutusTx.compile [|| mkValidator ||]) `PlutusTx.applyCode` PlutusTx.liftCode params
+validatorCode :: PlutusTx.CompiledCode (Scripts.ValidatorType MultiSigSym)
+validatorCode = $$(PlutusTx.compile [|| mkValidator ||])
 
-type MultiSigSym = StateMachine State Input
-scriptInstance :: Params -> Scripts.ScriptInstance MultiSigSym
-scriptInstance params = Scripts.validator @MultiSigSym
-    (validatorCode params)
+type EscrowSym = StateMachine State Input
+scriptInstance :: Scripts.ScriptInstance EscrowSym
+scriptInstance = Scripts.validator @EscrowSym
+    (validatorCode)
     $$(PlutusTx.compile [|| wrap ||])
     where
         wrap = Scripts.wrapValidator @State @Input
 
-machineInstance :: Params -> SM.StateMachineInstance State Input
-machineInstance params =
+machineInstance :: SM.StateMachineInstance State Input
+machineInstance =
     SM.StateMachineInstance
-    (StateMachine step (check params) final)
-    (scriptInstance params)
+    (StateMachine step check final)
+    (scriptInstance)
 
 allocate :: State -> Input -> Value -> ValueAllocation
-allocate (CollectingSignatures _ (Payment vp pk _) _) Pay vl =
-    let vl' = vl - vp 
-    in ValueAllocation{vaOwnAddress=vl', vaOtherPayments=Tx.payToPubKey vp pk}
+allocate (CollectingSignatures (Contract vp b d e _) approvers _) (Approve _) vl =
+    if (length approvers >= 2) then ValueAllocation{vaOwnAddress=0, vaOtherPayments=Tx.payToPubKey vl b}
+    else ValueAllocation{vaOwnAddress = vl, vaOtherPayments = Haskell.mempty}
+allocate (CollectingSignatures (Contract vp b d e _) _ disputers) (Dispute _) vl =
+    if (length disputers >= 2) then ValueAllocation{vaOwnAddress=0, vaOtherPayments=Tx.payToPubKey vl b}
+    else ValueAllocation{vaOwnAddress = vl, vaOtherPayments = Haskell.mempty}
 allocate _ _ vl =
     ValueAllocation{vaOwnAddress = vl, vaOtherPayments = Haskell.mempty}
 
-client :: Params -> SM.StateMachineClient State Input
-client p = SM.mkStateMachineClient (machineInstance p) allocate
+client :: SM.StateMachineClient State Input
+client = SM.mkStateMachineClient (machineInstance) allocate
 
 contract :: 
     ( AsContractError e
     , AsSMContractError e State Input
     )
-    => Params
-    -> Contract MultiSigSchema e ()
-contract params = go where
-    theClient = client params
-    go = endpoints >> go
+    => Contract MultiSigSchema e ()
+contract = go where
+    theClient = client
+    go = endpoints >> go -- TODO fix this next
     endpoints = lock <|> propose <|> cancel <|> addSignature <|> pay
     propose = endpoint @"propose-payment" >>= SM.runStep theClient . ProposePayment
     cancel  = endpoint @"cancel-payment" >> SM.runStep theClient Cancel
@@ -272,10 +266,9 @@ contract params = go where
         SM.runInitialise theClient (Holding value) value
     pay = endpoint @"pay" >> SM.runStep theClient Pay
 
-PlutusTx.makeIsData ''Payment
-PlutusTx.makeLift ''Payment
+PlutusTx.makeIsData ''Contract
+PlutusTx.makeLift ''Contract
 PlutusTx.makeIsData ''State
 PlutusTx.makeLift ''State
-PlutusTx.makeLift ''Params
 PlutusTx.makeIsData ''Input
 PlutusTx.makeLift ''Input
